@@ -1,0 +1,26 @@
+# Environment and secrets
+.env
+venv/
+
+# Scan output files
+scan.xml
+scan_results.json
+scan_report_*.html
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller
+build/
+dist/
+*.spec.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
