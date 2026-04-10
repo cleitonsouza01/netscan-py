@@ -5,7 +5,7 @@ venv/
 # Scan output files
 scan.xml
 scan_results.json
-scan_report_*.html
+scan_report*.html
 
 # Python
 __pycache__/

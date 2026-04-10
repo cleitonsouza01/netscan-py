@@ -32,7 +32,7 @@ cd netscan-py
 python3 -m venv venv
 source venv/bin/activate        # Linux/macOS
 # venv\Scripts\activate          # Windows
-pip install httpx rich tqdm litellm python-dotenv
+pip install -r requirements.txt
 ```
 
 ### 2. Set up your API key
@@ -53,11 +53,27 @@ Get a free key at [Google AI Studio](https://aistudio.google.com/apikey).
 
 ### 3. Run
 
+First, find your available subnets:
+
+```bash
+python3 netscan-py.py --list-subnets
+```
+
+This shows all network interfaces with their CIDR subnets:
+
+```
+┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
+┃ Interface ┃ IP Address    ┃ Netmask       ┃ Subnet (CIDR)    ┃ Status   ┃
+┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
+│ en0       │ 192.168.1.100 │ 255.255.255.0 │ 192.168.1.0/24   │ active   │
+└───────────┴───────────────┴───────────────┴──────────────────┴──────────┘
+```
+
+Then scan using one of the listed subnets:
+
 ```bash
 sudo python3 netscan-py.py 192.168.1.0/24
 ```
-
-Replace `192.168.1.0/24` with your subnet.
 
 ## Output files
 
@@ -112,6 +128,7 @@ This produces `dist\netscan.exe`. Place your `.env` file next to the `.exe`.
 ```
 netscan-py/
 ├── netscan-py.py       # Main scanner script
+├── requirements.txt    # Python dependencies
 ├── build.bat           # Windows .exe build script
 ├── netscan-py.spec     # PyInstaller config
 ├── .env-example        # API key template

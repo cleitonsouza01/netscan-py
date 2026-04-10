@@ -2,7 +2,10 @@
 """
 Network scanner: wraps nmap, probes HTTP services, outputs console + HTML report.
 Usage: sudo python3 netscan.py 192.168.1.0/24
+       python3 netscan.py --list-subnets
 """
+import argparse
+import ipaddress
 import os
 import re
 from tqdm import tqdm
@@ -534,12 +537,110 @@ def write_html_report(hosts: list[dict], target: str, out_file: str | None = Non
         f.write(html_out)
     console.print(f"[green]HTML report saved to {out_file}[/green]")
 
+# ---------- list subnets ----------
+def list_subnets() -> None:
+    """Detect and display all network interfaces with their subnets."""
+    console.print(Panel("[bold green]Available Network Interfaces & Subnets[/bold green]"))
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Interface")
+    table.add_column("IP Address")
+    table.add_column("Netmask")
+    table.add_column("Subnet (CIDR)")
+    table.add_column("Status")
+
+    try:
+        if sys.platform == "win32":
+            out = subprocess.check_output(["ipconfig", "/all"], text=True, errors="replace")
+            _parse_ipconfig(out, table)
+        else:
+            out = subprocess.check_output(["ifconfig"], text=True, errors="replace")
+            _parse_ifconfig(out, table)
+    except FileNotFoundError:
+        console.print("[red]Could not run ifconfig/ipconfig. Make sure it is installed.[/red]")
+        sys.exit(1)
+
+    console.print(table)
+    console.print("\n[dim]Use any Subnet (CIDR) value above as the target, e.g.:[/dim]")
+    console.print("[cyan]  sudo python3 netscan-py.py 192.168.1.0/24[/cyan]")
+
+
+def _parse_ifconfig(output: str, table: Table) -> None:
+    """Parse ifconfig output (macOS / Linux)."""
+    iface_re = re.compile(r"^(\S+?):\s+flags=\d+<([^>]*)>", re.MULTILINE)
+    inet_re = re.compile(r"inet (\d+\.\d+\.\d+\.\d+)\s+netmask\s+(0x[0-9a-fA-F]+|\d+\.\d+\.\d+\.\d+)")
+
+    blocks = re.split(r"(?=^\S+:\s+flags=)", output, flags=re.MULTILINE)
+    for block in blocks:
+        iface_m = iface_re.search(block)
+        if not iface_m:
+            continue
+        iface_name = iface_m.group(1)
+        flags = iface_m.group(2)
+        is_up = "UP" in flags
+        is_loopback = "LOOPBACK" in flags
+
+        for inet_m in inet_re.finditer(block):
+            ip_str = inet_m.group(1)
+            mask_str = inet_m.group(2)
+            if mask_str.startswith("0x"):
+                mask_int = int(mask_str, 16)
+                mask_str = f"{(mask_int >> 24) & 0xff}.{(mask_int >> 16) & 0xff}.{(mask_int >> 8) & 0xff}.{mask_int & 0xff}"
+            try:
+                iface = ipaddress.IPv4Interface(f"{ip_str}/{mask_str}")
+                subnet = str(iface.network)
+            except ValueError:
+                subnet = "?"
+
+            status = "[green]active[/green]" if is_up and not is_loopback else (
+                "[dim]loopback[/dim]" if is_loopback else "[dim]inactive[/dim]"
+            )
+            table.add_row(iface_name, ip_str, mask_str, subnet, status)
+
+
+def _parse_ipconfig(output: str, table: Table) -> None:
+    """Parse ipconfig /all output (Windows)."""
+    iface_name = ""
+    for line in output.splitlines():
+        # Section headers for adapters
+        adapter_m = re.match(r"^(\S.*adapter\s+.+?):\s*$", line, re.I)
+        if adapter_m:
+            iface_name = adapter_m.group(1)
+            continue
+        ip_m = re.match(r"\s+IPv4 Address[.\s]*:\s*(\d+\.\d+\.\d+\.\d+)", line)
+        if ip_m:
+            ip_str = ip_m.group(1)
+            continue
+        mask_m = re.match(r"\s+Subnet Mask[.\s]*:\s*(\d+\.\d+\.\d+\.\d+)", line)
+        if mask_m and ip_str:
+            mask_str = mask_m.group(1)
+            try:
+                iface = ipaddress.IPv4Interface(f"{ip_str}/{mask_str}")
+                subnet = str(iface.network)
+            except ValueError:
+                subnet = "?"
+            table.add_row(iface_name, ip_str, mask_str, subnet, "[green]active[/green]")
+            ip_str = ""
+
+
 # ---------- main ----------
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: sudo python3 netscan.py 192.168.1.0/24")
+    parser = argparse.ArgumentParser(
+        description="Network scanner with AI-powered device analysis.",
+    )
+    parser.add_argument("target", nargs="?", help="Target subnet to scan (e.g. 192.168.1.0/24)")
+    parser.add_argument("--list-subnets", "-l", action="store_true",
+                        help="List all available network interfaces and subnets")
+    args = parser.parse_args()
+
+    if args.list_subnets:
+        list_subnets()
+        sys.exit(0)
+
+    if not args.target:
+        parser.print_help()
         sys.exit(1)
-    target = sys.argv[1]
+
+    target = args.target
     xml_file = run_nmap(target)
     hosts = parse_nmap_xml(xml_file)
     console.print("[cyan]Probing web ports...[/cyan]")
