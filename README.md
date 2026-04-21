@@ -1,127 +1,80 @@
 # netscan-py
 
-A network scanner that discovers devices on your local network, probes web services, and uses **AI (Google Gemini)** to identify security risks like default passwords.
+A network scanner that discovers devices on your local network, probes web services, and optionally uses **AI (Google Gemini)** to flag default credentials and security risks.
 
 ## What it does
 
-1. **Scans your network** with nmap (SYN scan + service/OS detection)
-2. **Probes web ports** (80, 443, 8080, etc.) to grab server info and page titles
-3. **AI analysis** sends each device's info to Gemini 2.5 Flash to identify:
-   - Device type
-   - Known default credentials (user/pass)
-   - Security risks
-   - Recommendations
-4. **Generates reports** in three formats:
-   - Rich console output with colors
-   - Interactive HTML report (dark theme, searchable)
-   - JSON file for programmatic use
+1. **nmap scan** — SYN + service/OS detection, top-1000 ports by default, broadened host discovery (ICMP + TCP/UDP ping probes) for firewalled hosts.
+2. **Hostname resolution** — PTR, NetBIOS (`nbstat`), SMB (`smb-os-discovery`), RDP/HTTP NTLM challenge (`rdp-ntlm-info`, `http-ntlm-info`), system reverse DNS, LLMNR PTR fallback.
+3. **Web probes** on common HTTP(S) ports — server header, page title, status code.
+4. **AI analysis (optional)** — Gemini 2.5 Flash identifies device type, default credentials, risks, and recommendations.
+5. **Reports** — rich console output, interactive HTML, JSON.
 
 ## Requirements
 
-- **Python 3.10+**
-- **nmap** installed and in PATH
-- **Root/admin privileges** (nmap needs raw sockets for SYN scan)
+- Python 3.10+, `nmap` in `PATH`, root/admin (SYN scan and OS detection need raw sockets).
 
 ## Quick start
-
-### 1. Clone and install
 
 ```bash
 git clone <repo-url>
 cd netscan-py
-python3 -m venv venv
-source venv/bin/activate        # Linux/macOS
-# venv\Scripts\activate          # Windows
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+
+# Optional — enable AI analysis
+cp .env-example .env      # then set GEMINI_API_KEY=...
+# Free key: https://aistudio.google.com/apikey
+
+python3 netscan-py.py --list-subnets         # list interfaces and subnets
+sudo python3 netscan-py.py 192.168.1.0/24    # scan
 ```
 
-### 2. Set up your API key
+## CLI options
 
-```bash
-cp .env-example .env
-```
+| Flag | Purpose |
+|------|---------|
+| `-l`, `--list-subnets` | List interfaces and their CIDR subnets |
+| `--ai` / `--no-ai` | Force AI on/off. Default: auto (on when `GEMINI_API_KEY` is set) |
+| `--fast` | Top 100 ports only (quick triage) |
+| `--all-ports` | All 65535 ports per host (slow) |
+| `--no-ping` | Skip host discovery — treat every IP as alive |
 
-Edit `.env` and add your Google Gemini API key:
-
-```
-GEMINI_API_KEY=your-api-key-here
-```
-
-Get a free key at [Google AI Studio](https://aistudio.google.com/apikey).
-
-> **Note:** The AI analysis step is optional. If no key is set, the scan runs normally and just skips the AI part.
-
-### 3. Run
-
-First, find your available subnets:
-
-```bash
-python3 netscan-py.py --list-subnets
-```
-
-This shows all network interfaces with their CIDR subnets:
+At startup the script prints a status line so you know what's happening:
 
 ```
-┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
-┃ Interface ┃ IP Address    ┃ Netmask       ┃ Subnet (CIDR)    ┃ Status   ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
-│ en0       │ 192.168.1.100 │ 255.255.255.0 │ 192.168.1.0/24   │ active   │
-└───────────┴───────────────┴───────────────┴──────────────────┴──────────┘
+🤖 AI analysis: ENABLED — Gemini 2.5 Flash
+Profile: common ports · discovery on · a /24 scan takes ~3–10 minutes
 ```
 
-Then scan using one of the listed subnets:
+## HTML report
 
-```bash
-sudo python3 netscan-py.py 192.168.1.0/24
-```
+- **Severity-sorted** — per-host score from default creds, exposed admin UIs, and AI-flagged risks. Colored stripe and pill on every card; most-critical first.
+- **Summary stats** — Live Hosts · Open Ports · Critical · Default Creds · Exposed Web · With Risks.
+- **Filter chips** — All / Critical / High / Default Creds / Web Exposed / With Risks.
+- **View toggle** — Cards (detailed) ↔ List (dense table).
+- **Clickable port numbers** for HTTP(S) — open in a new tab.
+- **Copy button** on default credentials.
+- **Hostname source badge** — `RDNS` / `NETBIOS` / `SMB` / `RDP-NTLM` / `HTTP-NTLM` / `LLMNR`.
+- Free-text search, empty state, back-to-top, responsive.
 
 ## Output files
 
-After a scan, you'll find:
-
 | File | Description |
 |------|-------------|
-| `scan_report_<subnet>_<date>.html` | Interactive HTML report (open in browser) |
-| `scan_results.json` | Raw JSON with all host data + AI analysis |
-| `scan.xml` | Raw nmap XML output |
-
-## Example output
-
-```
-nmap: 100%|████████████████████| 3m12s elapsed, ETA 0:00:00
-✓ nmap scan complete
-
-web probes: 8/8 [00:03]
-LLM analysis: 6/6 [00:12]
-
-┌─────────────────────────────┐
-│ Found 6 live hosts          │
-└─────────────────────────────┘
-
-192.168.1.76 (unknown5803fb2f3bd0.attlocal.net)  —  🌐 Web server / IoT
-  MAC: 58:03:FB:2F:3B:D0   Vendor: Hangzhou Hikvision Digital Technology
-  OS:  Linux 3.2 - 4.14
-  Port   Service   Product / Version                      Web info
-  80/tcp http      Hikvision Network Video Recorder admin  [200] DNVRS-Webs
-  🤖 AI Analysis: Hikvision Network Video Recorder (NVR)
-  ⚠ Default credentials: admin:12345, admin:admin, root:hikvision
-    • Use of known default credentials (if not changed)
-    • Exposed web administration interface
-    ✓ Change all default credentials immediately
-    ✓ Isolate the device on a dedicated VLAN
-```
+| `scan_report_<subnet>_<date>.html` | Interactive HTML report |
+| `scan_results.json` | Hosts, ports, AI analysis |
+| `scan.xml` | Raw nmap XML |
 
 ## Building a Windows .exe
 
-On a Windows machine with Python 3.10+:
+On Windows with Python 3.10+:
 
 ```cmd
 build.bat
 ```
 
-This produces `dist\netscan.exe`. Place your `.env` file next to the `.exe`.
-
-> **Important:** nmap must also be installed on the Windows machine.
+Produces `dist\netscan.exe`. Place `.env` next to it. `nmap` must also be installed on the target machine.
 
 ## Project structure
 
